@@ -6,6 +6,8 @@ package main
 
  This go program licensed under GPLv3.
  Copyright Alexander I.Grafov <grafov@gmail.com>
+
+ Updated by Abe Dick <abedick8213@gmail.com>, April 2019
 */
 
 import (
@@ -74,13 +76,11 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 type config struct {
-	verbose      bool
-	numProcesses int
-	maxRequests  int
-	runningTime  time.Duration
-	startTime    time.Time
-	maxProcs     int
-	mu           *sync.Mutex
+	maxRequests int
+	runningTime time.Duration
+	startTime   time.Time
+	maxProcs    int
+	mu          *sync.Mutex
 }
 
 var c *config
@@ -98,7 +98,6 @@ func main() {
 
 	flag.IntVar(&c.maxRequests, "max", 0, "Max number of requests, defaults to no maximum")
 	flag.IntVar(&c.maxProcs, "maxProcs", 1024, "Size of connection pool")
-	flag.BoolVar(&c.verbose, "verbose", false, "print errors to console")
 	flag.BoolVar(&versionFlag, "version", false, "print version and exit")
 	flag.BoolVar(&safe, "safe", false, "Autoshut after dos.")
 	flag.StringVar(&target, "target", "", "target url.")
@@ -216,13 +215,13 @@ func updateLog(t time.Time) {
 	c.runningTime += timeDelta
 }
 
-func httpcall(url string, host string, data string, headers arrayFlags, s chan uint8, m map[string]int) {
+func httpcall(urlstr string, host string, data string, headers arrayFlags, s chan uint8, m map[string]int) {
 	atomic.AddInt32(&currNumReqs, 1)
 
 	var param_joiner string
 	var client = new(http.Client)
 
-	if strings.ContainsRune(url, '?') {
+	if strings.ContainsRune(urlstr, '?') {
 		param_joiner = "&"
 	} else {
 		param_joiner = "?"
@@ -233,9 +232,9 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 		var err error
 
 		if data == "" {
-			q, err = http.NewRequest("GET", url+param_joiner+buildblock(rand.Intn(7)+3)+"="+buildblock(rand.Intn(7)+3), nil)
+			q, err = http.NewRequest("GET", urlstr+param_joiner+buildblock(rand.Intn(7)+3)+"="+buildblock(rand.Intn(7)+3), nil)
 		} else {
-			q, err = http.NewRequest("POST", url, strings.NewReader(data))
+			q, err = http.NewRequest("POST", urlstr, strings.NewReader(data))
 		}
 
 		if err != nil {
@@ -259,13 +258,11 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 
 		r, e := client.Do(q)
 		if e != nil {
-
 			errString := ""
 			if strings.Contains(e.Error(), "socket: too many open files") {
 				errString = "socket: too many open files"
 				s <- onFileError
 			} else {
-
 				if strings.Contains(e.Error(), "read: connection reset by peer") {
 					errString = "read: connection reset by peer"
 				} else if strings.Contains(e.Error(), "read: connection refused") {
@@ -275,10 +272,8 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 				} else {
 					errString = e.Error()
 				}
-
 				s <- onError
 			}
-
 			c.mu.Lock()
 			m[errString]++
 			c.mu.Unlock()

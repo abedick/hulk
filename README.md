@@ -1,5 +1,14 @@
-Hulk DoS tool
+Hulk DoS tool - April 2019 Upate
 =============
+
+The python version will not be changed in this fork. I have simply refactored the go version form what Grafov left. 
+
+Changes
+* -site flag changed to -target
+* HULKMAXPROCS was changed to the flag maxProcs=<int>
+* Tracking metrics for number of failures of each type of error from golang url package
+
+============
 
 HULK DoS tool ported to Go language from Python. 
 Original Python utility by Barry Shteiman http://www.sectorix.com/2012/05/17/hulk-web-server-dos-tool/
@@ -15,16 +24,13 @@ This tool targeted for stress testing and may really down badly configured serve
 
 Examples:
 
-    $ hulk -site http://example.com/test/ 2>/dev/null
+    $ hulk -target http://example.com/test/
 
-    $ HULKMAXPROCS=4096 hulk -site http://example.com 2>/tmp/errlog
 
 Useful environment vars:
 
 * GOMAXPROCS
   Set it to number of your CPUs or higher (no more actual for latest golang versions).
-* HULKMAXPROCS
-  Limit the connection pool (1024 by default).
 
 More details: http://old.siberian.laika.name/node/7 
 
