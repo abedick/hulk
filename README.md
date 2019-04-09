@@ -8,7 +8,7 @@ Changes
 * HULKMAXPROCS was changed to the flag maxProcs=<int>
 * Tracking metrics for number of failures of each type of error from golang url package
 
-============
+=============
 
 HULK DoS tool ported to Go language from Python. 
 Original Python utility by Barry Shteiman http://www.sectorix.com/2012/05/17/hulk-web-server-dos-tool/
