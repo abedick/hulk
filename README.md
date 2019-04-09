@@ -1,4 +1,4 @@
-Hulk DoS tool - April 2019 Upate
+Hulk DoS tool - April 2019 Update
 =============
 
 The python version will not be changed in this fork. I have simply refactored the go version form what Grafov left. 
